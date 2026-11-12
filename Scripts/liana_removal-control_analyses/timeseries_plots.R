@@ -39,6 +39,7 @@ library(tidyr)
 library(patchwork)
 library(grid)
 
+
 #########
 # INPUT #
 #########
@@ -305,6 +306,51 @@ absolute_process_values <- comparison %>%
 print(absolute_process_values)
 
 ###############################################################################
+# MACRO AIR TEMPERATURE
+###############################################################################
+
+macro_data <- readRDS("Data/TMS_macro_2023_4C_4R.rds") %>%
+  mutate(
+    plot = sub("^([A-Z])0+", "\\1", plot),
+    datetime = as.POSIXct(datetime, tz = "UTC"),
+    datetime_UTC_hour = floor_date(datetime, unit = "hour")
+  ) %>%
+  filter(year(datetime_UTC_hour) == 2023) %>%
+  group_by(plot, datetime_UTC_hour) %>%
+  summarise(
+    temp_macro = mean(temp_macro, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    date = as.Date(datetime_UTC_hour),
+    hour_utc = hour(datetime_UTC_hour),
+    period = if_else(
+      hour_utc >= 11 & hour_utc < 23,
+      "Day",
+      "Night"
+    ),
+    treatment = if_else(
+      grepl("^C", plot),
+      "Control",
+      "Removal"
+    )
+  )
+
+macro_summary <- macro_data %>%
+  group_by(treatment, plot, date, period) %>%
+  summarise(
+    macro_temp = median(temp_macro, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  group_by(treatment, date, period) %>%
+  summarise(
+    n_plots = n_distinct(plot),
+    macro_temp = mean(macro_temp, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(n_plots == 4)
+
+###############################################################################
 # ABSOLUTE AIR TEMPERATURE
 ###############################################################################
 
@@ -348,6 +394,20 @@ absolute_air <- bind_rows(
       treatment = "Removal",
       type = "Modelled",
       value = mod_removal
+    ),
+
+  macro_summary %>%
+    inner_join(
+      comparison %>% distinct(date, period, season),
+      by = c("date", "period")
+    ) %>%
+    transmute(
+      date,
+      season,
+      period,
+      treatment,
+      type = "Macroclimate",
+      value = macro_temp
     )
 
 )
@@ -667,27 +727,11 @@ plot_absolute_air <- function(df, period_filter, title = NULL, show_legend = FAL
   df_sub <- df %>%
     filter(period == period_filter)
 
-  means <- df_sub %>%
-    group_by(treatment, season, type) %>%
-    summarise(
-      mean_val = median(value, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
+  df_sub <- df_sub %>%
     mutate(
-      xmin = if_else(
-        season == "Wet season",
-        as.Date("2023-05-01"),
-        as.Date("2023-01-01")
-      ),
-      xmax = if_else(
-        season == "Wet season",
-        as.Date("2023-12-15"),
-        as.Date("2023-04-30")
-      ),
-      x_pos = if_else(
-        season == "Wet season",
-        as.Date("2023-08-15"),
-        as.Date("2023-02-15")
+      type = factor(
+        type,
+        levels = c("Observed", "Modelled", "Macroclimate")
       )
     )
 
@@ -708,10 +752,14 @@ plot_absolute_air <- function(df, period_filter, title = NULL, show_legend = FAL
         as.Date("2023-12-15"),
         as.Date("2023-04-30")
       ),
-      x_pos = if_else(
-        season == "Wet season",
-        as.Date("2023-08-15"),
-        as.Date("2023-02-15")
+      x_pos = case_when(
+        season == "Wet season" & type == "Macroclimate" ~ as.Date("2023-06-15"),
+        season == "Wet season" & type == "Observed"     ~ as.Date("2023-08-15"),
+        season == "Wet season" & type == "Modelled"     ~ as.Date("2023-10-15"),
+
+        season == "Dry season" & type == "Macroclimate" ~ as.Date("2023-01-20"),
+        season == "Dry season" & type == "Observed"     ~ as.Date("2023-02-25"),
+        season == "Dry season" & type == "Modelled"     ~ as.Date("2023-04-05")
       )
     ) %>%
     group_by(treatment, season) %>%
@@ -773,7 +821,7 @@ plot_absolute_air <- function(df, period_filter, title = NULL, show_legend = FAL
     geom_label(
       data = means,
       aes(
-        x = x_label,
+        x = x_pos,
         y = mean_val,
         label = round(mean_val, 1),
         colour = type
@@ -792,18 +840,24 @@ plot_absolute_air <- function(df, period_filter, title = NULL, show_legend = FAL
     scale_colour_manual(
       values = c(
         Observed = "blue",
-        Modelled = "red"
+        Modelled = "red",
+        Macroclimate = "black"
       ),
-      breaks = c("Observed", "Modelled"),
+      breaks = c("Observed", "Modelled", "Macroclimate"),
+      limits = c("Observed", "Modelled", "Macroclimate"),
+      drop = FALSE,
       name = NULL
     ) +
 
     scale_fill_manual(
       values = c(
         Observed = "blue",
-        Modelled = "red"
+        Modelled = "red",
+        Macroclimate = "black"
       ),
-      breaks = c("Observed", "Modelled"),
+      breaks = c("Observed", "Modelled", "Macroclimate"),
+      limits = c("Observed", "Modelled", "Macroclimate"),
+      drop = FALSE,
       name = NULL
     ) +
 
@@ -944,10 +998,6 @@ print(metrics)
 # Each unique composition is weighted according to its probability
 # under an ordinary bootstrap with replacement.
 ###############################################################################
-
-library(dplyr)
-library(tidyr)
-library(lubridate)
 
 
 ###############################################################################
@@ -1531,7 +1581,7 @@ exact_CI <- exact_boot_results %>%
 
 
 ###############################################################################
-# 12. ORIGINAL MEDIAN EFFECTS FROM YOUR ACTUAL DATA
+# 12. ORIGINAL MEDIAN EFFECTS FROM ACTUAL DATA
 ###############################################################################
 
 original_effects <- comparison %>%
@@ -1807,7 +1857,6 @@ appendix_table <- results_exact_CI %>%
     CI_low,
     CI_high
   ) %>%
-
   rename(
     treatment_difference = median
   )

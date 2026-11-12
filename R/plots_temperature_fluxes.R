@@ -25,11 +25,22 @@ plots_temp <- function(micro_grid, T_air_vec, output_path, datetime){
   # Convert air temperature values from Kelvin to degrees Celsius
   temp_air_grid$temperature = T_air_vec - 273.15
 
-  # Calculate the average of the surface temperature over all y-slices for each combination of x and z
-  average_surface_temperature <- temp_surf_grid |>
-    filter(den != 0) |>
-    group_by(x, z) |>
-    summarise(mean_temperature = mean(temperature, na.rm = TRUE), .groups = 'keep')
+  # Select the available voxel slice closest to y = 30 m.
+  selected_y <- 30
+  available_y <- sort(unique(temp_air_grid$y[is.finite(temp_air_grid$y)]))
+  if (length(available_y) == 0L) stop("No valid y-coordinates found")
+  actual_y <- available_y[which.min(abs(available_y - selected_y))]
+
+  # Forest surface temperatures in one x-z slice, without y-averaging.
+  # Keep only occupied voxels, as in the original surface plot.
+  surface_temperature_slice <- temp_surf_grid |>
+    dplyr::filter(y == actual_y, !is.na(den), den != 0) |>
+    dplyr::transmute(x, z, temperature)
+
+  # Air temperatures in the same x-z slice.
+  air_temperature_slice <- temp_air_grid |>
+    dplyr::filter(y == actual_y) |>
+    dplyr::transmute(x, z, temperature)
 
   # Calculate ground surface temperature for forest surface
   surface_temperature_ground <- temp_surf_grid |>
@@ -39,13 +50,13 @@ plots_temp <- function(micro_grid, T_air_vec, output_path, datetime){
   # Calculate central transect temperature for forest surface
   surface_temperature_central_transect <- temp_surf_grid |>
     filter(den != 0) |>
-    filter(y == 30)
+    filter(y == actual_y)
 
   # Colors to be used in the plots
   colors = c("blue", "lightblue", "orange", "red")
 
   # 2D tile plot:
-  temp_surf_plot = ggplot(average_surface_temperature, aes(x = x, y = z, fill = mean_temperature)) +
+  temp_surf_plot = ggplot(surface_temperature_slice, aes(x = x, y = z, fill = temperature)) +
     geom_tile()+
     scale_fill_gradientn(
       colors = colors,
@@ -56,16 +67,16 @@ plots_temp <- function(micro_grid, T_air_vec, output_path, datetime){
          x = "Easting (m)", y = "Height (m)", fill = "Temperature (°C)")+
     coord_fixed(ratio = 1, clip = "off") +
     theme_bw() #+
-    # theme(
-    #   plot.title = element_text(size = 20),
-    #   plot.caption = element_text(hjust = 0, color = "black"),
-    #   axis.title = element_text(size = 20),
-    #   axis.text = element_text(size = 16),
-    #   strip.text = element_text(size = 18),
-    #   legend.title = element_text(size = 18),
-    #   legend.text  = element_text(size = 16),
-    #   legend.position = "right"
-    #   )
+  # theme(
+  #   plot.title = element_text(size = 20),
+  #   plot.caption = element_text(hjust = 0, color = "black"),
+  #   axis.title = element_text(size = 20),
+  #   axis.text = element_text(size = 16),
+  #   strip.text = element_text(size = 18),
+  #   legend.title = element_text(size = 18),
+  #   legend.text  = element_text(size = 16),
+  #   legend.position = "right"
+  #   )
 
 
   ggsave(paste0(output_path, '/temp_surface.png'), plot = temp_surf_plot, width = 9, height = 3, dpi = 500)
@@ -112,10 +123,10 @@ plots_temp <- function(micro_grid, T_air_vec, output_path, datetime){
 
   # Calculate the air temperature at central transect
   central_transect_air_temperature <- temp_air_grid |>
-    filter(y ==30)
+    filter(y == actual_y)
 
   # 2D tile plot:
-  temp_air_plot = ggplot(average_air_temperature, aes(x = x, y = z, fill = mean_temperature)) +
+  temp_air_plot = ggplot(air_temperature_slice, aes(x = x, y = z, fill = temperature)) +
     geom_tile()+
     scale_fill_gradientn(
       colors = colors,
@@ -126,15 +137,15 @@ plots_temp <- function(micro_grid, T_air_vec, output_path, datetime){
          y = "Height (m)", x = "Easting (m)", fill = "Temperature (°C)")+
     coord_fixed(ratio = 1) +
     theme_bw() #+
-    # theme(
-    #   plot.title = element_text(size = 20),
-    #   plot.caption = element_text(hjust = 0, color = "black"),
-    #   axis.title = element_text(size = 20),
-    #   axis.text = element_text(size = 16),
-    #   strip.text = element_text(size = 18),
-    #   legend.title = element_text(size = 18),
-    #   legend.text  = element_text(size = 16)
-    # )
+  # theme(
+  #   plot.title = element_text(size = 20),
+  #   plot.caption = element_text(hjust = 0, color = "black"),
+  #   axis.title = element_text(size = 20),
+  #   axis.text = element_text(size = 16),
+  #   strip.text = element_text(size = 18),
+  #   legend.title = element_text(size = 18),
+  #   legend.text  = element_text(size = 16)
+  # )
 
   ggsave(paste0(output_path, '/temp_air.png'), plot = temp_air_plot, width = 9, height = 3, dpi = 500)
 
@@ -191,7 +202,7 @@ plots_temp <- function(micro_grid, T_air_vec, output_path, datetime){
 
   # 3D plot averaged air temperature
 
-  temp_air_plot_3D = ggplot(average_air_temperature, aes(x = x, y = z, fill = mean_temperature)) +
+  temp_air_plot_3D = ggplot(air_temperature_slice, aes(x = x, y = z, fill = temperature)) +
     geom_tile()+
     scale_fill_gradientn(
       colors = colors,
@@ -252,13 +263,13 @@ plots_temp <- function(micro_grid, T_air_vec, output_path, datetime){
 
   # 3D plot averaged forest surface temerpature
 
-  temp_surf_plot_3D = ggplot(average_surface_temperature, aes(x = x, y = z, fill = mean_temperature)) +
+  temp_surf_plot_3D = ggplot(surface_temperature_slice, aes(x = x, y = z, fill = temperature)) +
     geom_tile()+
     scale_fill_gradientn(
       colors = colors,
       values = rescale(c(0.25, 0.5, 0.75, 1)),
-      limits = c(27, 48),
-      breaks = c(27, 32, 37, 42, 47),
+      limits = c(25, 39),
+      breaks = seq(25, 39, by = 3),
       oob = scales::squish,
       guide = guide_colorbar(barwidth = 1, barheight = 10, frame.colour = "black", ticks.colour = "black")) +
     labs(title = NULL,
@@ -290,8 +301,8 @@ plots_temp <- function(micro_grid, T_air_vec, output_path, datetime){
     scale_fill_gradientn(
       colors = colors,
       values = rescale(c(0.25, 0.5, 0.75, 1)),
-      limits = c(27, 48),
-      breaks = c(27, 32, 37, 42, 47),
+      limits = c(25, 39),
+      breaks = seq(25, 39, by = 3),
       oob = scales::squish,
       guide = guide_colorbar(barwidth = 1, barheight = 10, frame.colour = "black", ticks.colour = "black")) +
     labs(title = NULL,
@@ -354,8 +365,8 @@ plots_flux <- function(micro_grid, net_radiation, sensible_flux, latent_flux, G,
       values = rescale(c(0.25, 0.5, 0.75, 1)),
       guide = guide_colorbar(barwidth = 1, barheight = 10, frame.colour = "black", ticks.colour = "black")) +
     labs(title = paste("Net radiation"),
-                  subtitle = "+ value ⮕ flux entering surface",
-                  x = "Easting (m)", y = "Height (m)", fill = "Rₙ (W/m²)")+
+         subtitle = "+ value ⮕ flux entering surface",
+         x = "Easting (m)", y = "Height (m)", fill = "Rₙ (W/m²)")+
     coord_fixed(ratio = 1) +
     theme_bw() +
     theme(
@@ -378,8 +389,8 @@ plots_flux <- function(micro_grid, net_radiation, sensible_flux, latent_flux, G,
       values = rescale(c(0.25, 0.5, 0.75, 1)),
       guide = guide_colorbar(barwidth = 1, barheight = 10, frame.colour = "black", ticks.colour = "black")) +
     labs(title = paste("Sensible heat surface flux"),
-                  subtitle = "+ value ⮕ flux lost to air",
-                  x = "Easting (m)", y = "Height (m)", fill = "H (W/m²)")+
+         subtitle = "+ value ⮕ flux lost to air",
+         x = "Easting (m)", y = "Height (m)", fill = "H (W/m²)")+
     coord_fixed(ratio = 1) +
     theme_bw() +
     theme(
@@ -402,8 +413,8 @@ plots_flux <- function(micro_grid, net_radiation, sensible_flux, latent_flux, G,
       values = rescale(c(0.25, 0.5, 0.75, 1)),
       guide = guide_colorbar(barwidth = 1, barheight = 10, frame.colour = "black", ticks.colour = "black")) +
     labs(title = paste("Latent heat surface flux"),
-                  subtitle = "+ value ⮕ flux lost to air",
-                  x = "Easting (m)", y = "Height (m)", fill = "LE (W/m²)")+
+         subtitle = "+ value ⮕ flux lost to air",
+         x = "Easting (m)", y = "Height (m)", fill = "LE (W/m²)")+
     coord_fixed(ratio = 1) +
     theme_bw() +
     theme(
@@ -426,8 +437,8 @@ plots_flux <- function(micro_grid, net_radiation, sensible_flux, latent_flux, G,
       values = rescale(c(0.25, 0.5, 0.75, 1)),
       guide = guide_colorbar(barwidth = 1, barheight = 10, frame.colour = "black", ticks.colour = "black")) +
     labs(title = paste("Ground heat flux"),
-                  subtitle = "+ value ⮕ flux entering soil",
-                  x = "Easting (m)", y = NULL, fill = "G (W/m²)")+
+         subtitle = "+ value ⮕ flux entering soil",
+         x = "Easting (m)", y = NULL, fill = "G (W/m²)")+
     coord_fixed(ratio = 1) +
     theme_bw() +
     theme(

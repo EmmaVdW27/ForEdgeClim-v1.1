@@ -26,7 +26,8 @@ plots_sw <- function(sw_rad, output_path){
 
   # Calculate values at central transect, i.e., Y = 30
   final_central_transect_results <- sw_rad |>
-    filter(Y == 30, na.rm = TRUE)
+    filter(Y == 30, na.rm = TRUE) |>
+    mutate(F_down_total = F_d_down + F_b_down)
 
   # F_d_down plot:
   F_d_down = ggplot(final_avg_results, aes(x = X, y = Z, fill = avg_F_d_down)) +
@@ -96,26 +97,38 @@ plots_sw <- function(sw_rad, output_path){
   ggsave(paste0(output_path, '/SW_F_b_down.png'), plot = F_b_down, width = 9, height = 3, dpi = 500)
 
 
-  # F_d_down + F_b_down plot:
-  F_b_d_down = ggplot(final_avg_results, aes(x = X, y = Z, fill = avg_F_d_down + avg_F_b_down)) +
-    geom_tile() +
-    scale_fill_viridis_c(option = "inferno",
-                         guide = guide_colorbar(barwidth = 1, barheight = 10, frame.colour = "black", ticks.colour = "black")) +
-    labs(title = paste("Shortwave direct-beam & diffuse downward radiation"),
-         x = "Easting (m)", y = "Height (m)", fill = bquote(Flux~(W~m^{-2})) )+
-    coord_fixed(ratio = 1) +
-    theme_bw() #+
-    # theme(
-    #   plot.title = element_text(size = 20),
-    #   plot.caption = element_text(hjust = 0, color = "black"),
-    #   axis.title = element_text(size = 20),
-    #   axis.text = element_text(size = 16),
-    #   strip.text = element_text(size = 18),
-    #   legend.title = element_text(size = 18),
-    #   legend.text  = element_text(size = 16)
-    # )
+  # F_d_down + F_b_down: single vertical slice at y = 30 m
 
-  ggsave(paste0(output_path, '/SW_F_b_d_down.png'), plot = F_b_d_down, width = 9, height = 3, dpi = 500)
+  F_b_d_down <- ggplot(
+    final_central_transect_results,
+    aes(x = X, y = Z, fill = F_down_total)
+  ) +
+    geom_tile() +
+    scale_fill_viridis_c(
+      option = "inferno",
+      guide = guide_colorbar(
+        barwidth = 1,
+        barheight = 10,
+        frame.colour = "black",
+        ticks.colour = "black"
+      )
+    ) +
+    labs(
+      title = "Shortwave direct-beam & diffuse downward radiation",
+      x = "Easting (m)",
+      y = "Height (m)",
+      fill = bquote(Flux~(W~m^{-2}))
+    ) +
+    coord_fixed(ratio = 1) +
+    theme_bw()
+
+  ggsave(
+    paste0(output_path, "/SW_F_b_d_down.png"),
+    plot = F_b_d_down,
+    width = 9,
+    height = 3,
+    dpi = 500
+  )
 
   # F_down ground surface plot:
   F_down_surface_2D = ggplot(final_ground_surface_results, aes(x = X, y = Y, fill = F_b_down + F_d_down)) +
@@ -149,9 +162,14 @@ plots_sw <- function(sw_rad, output_path){
   # 3D plots #
   ############
 
-  # F_down plot for 3D plot
-  F_down = ggplot(final_avg_results, aes(x = X, y = Z, fill = avg_F_d_down + avg_F_b_down)) +
-    geom_tile()+
+  # F_down plot for 3D visualisation
+  # Single vertical slice at y = 30 m
+
+  F_down <- ggplot(
+    final_central_transect_results,
+    aes(x = X, y = Z, fill = F_down_total)
+  ) +
+    geom_tile() +
     scale_fill_viridis_c(
       option = "inferno",
       limits = c(0, 650),
@@ -164,18 +182,20 @@ plots_sw <- function(sw_rad, output_path){
         ticks.colour = "black"
       )
     ) +
-    labs(title = NULL,
-         x = NULL, y = NULL, fill = NULL)+
+    labs(
+      title = NULL,
+      x = NULL,
+      y = NULL,
+      fill = NULL
+    ) +
     coord_fixed(ratio = 1) +
     theme_minimal() +
-    scale_y_continuous(
-      position = "right"
-    ) +
+    scale_y_continuous(position = "right") +
     theme(
       axis.text.x = element_blank(),
       axis.text.y = element_text(size = 20),
       legend.title = element_text(size = 18),
-      legend.text  = element_text(size = 16),
+      legend.text = element_text(size = 16),
       legend.position = "right",
       plot.background = element_rect(fill = "transparent", colour = NA),
       panel.background = element_rect(fill = "transparent", colour = NA),
@@ -183,7 +203,14 @@ plots_sw <- function(sw_rad, output_path){
       legend.box.background = element_rect(fill = "transparent", colour = NA)
     )
 
-  ggsave(paste0(output_path, '/3D_SW_down.pdf'), plot = F_down, width = 4, height = 3, dpi = 500, bg = "transparent")
+  ggsave(
+    paste0(output_path, "/3D_SW_down.pdf"),
+    plot = F_down,
+    width = 4,
+    height = 3,
+    dpi = 500,
+    bg = "transparent"
+  )
 
   # F_down ground surface plot:
   F_down_surface = ggplot(final_ground_surface_results, aes(x = X, y = Y, fill = F_b_down + F_d_down)) +

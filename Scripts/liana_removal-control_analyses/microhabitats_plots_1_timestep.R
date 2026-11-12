@@ -21,6 +21,8 @@ suppressPackageStartupMessages({
 # INPUT
 # -----------------
 
+average_over_slices = "no" # yes or no (no = single slice)
+
 file_C8 <- "Output/2023-04-26_19/C8/model_results.rds"
 file_R7 <- "Output/2023-04-26_19/R7/model_results.rds"
 
@@ -142,31 +144,70 @@ prepare_ground_floor <- function(temp_grid) {
 ground_C8 <- prepare_ground_floor(temp_C8)
 ground_R7 <- prepare_ground_floor(temp_R7)
 
-# -----------------
-# NORTH-SOUTH AVERAGED TEMPERATURE
-# -----------------
 
-# Air temperature is first averaged over the north-south (y) direction
-# for every x-z position.
-#
-# The resulting mean temperature is then compared with the mean temperature
-# of the complete original 3D forest volume.
+if(average_over_slices == "yes"){
+  # -----------------
+  # NORTH-SOUTH AVERAGED TEMPERATURE
+  # -----------------
 
-prepare_vertical_profile <- function(temp_grid) {
+  # Air temperature is first averaged over the north-south (y) direction
+  # for every x-z position.
+  #
+  # The resulting mean temperature is then compared with the mean temperature
+  # of the complete original 3D forest volume.
 
-  Tair_volume_mean <- mean(temp_grid$Tair, na.rm = TRUE)
+  prepare_vertical_profile <- function(temp_grid) {
 
-  temp_grid %>%
-    group_by(x, z) %>%
-    summarise(mean_temperature = mean(Tair, na.rm = TRUE), .groups = "drop") %>%
-    mutate(
-      T_anomaly = mean_temperature - Tair_volume_mean,
-      thermal_niche = classify_thermal_niche(T_anomaly)
+    Tair_volume_mean <- mean(temp_grid$Tair, na.rm = TRUE)
+
+    temp_grid %>%
+      group_by(x, z) %>%
+      summarise(mean_temperature = mean(Tair, na.rm = TRUE), .groups = "drop") %>%
+      mutate(
+        T_anomaly = mean_temperature - Tair_volume_mean,
+        thermal_niche = classify_thermal_niche(T_anomaly)
+      )
+  }
+
+  average_air_temperature_C8 <- prepare_vertical_profile(temp_C8)
+  average_air_temperature_R7 <- prepare_vertical_profile(temp_R7)
+} else{
+  # -----------------
+  # SINGLE VERTICAL SLICE AT Y = 30 m
+  # -----------------
+
+  # Select a single x-z slice at y = 30 m.
+  # Thermal anomalies remain relative to the mean air temperature
+  # of the complete original 3D forest volume.
+
+  selected_y <- 30
+
+  prepare_vertical_profile <- function(temp_grid, y_slice = selected_y) {
+
+    Tair_volume_mean <- mean(temp_grid$Tair, na.rm = TRUE)
+
+    # Select nearest available y-coordinate
+    available_y <- sort(unique(temp_grid$y))
+    actual_y <- available_y[which.min(abs(available_y - y_slice))]
+
+    cat(
+      "\nRequested y = ", y_slice,
+      " m; selected y = ", actual_y,
+      " m\n",
+      sep = ""
     )
-}
 
-average_air_temperature_C8 <- prepare_vertical_profile(temp_C8)
-average_air_temperature_R7 <- prepare_vertical_profile(temp_R7)
+    temp_grid %>%
+      filter(y == actual_y) %>%
+      mutate(
+        T_anomaly = Tair - Tair_volume_mean,
+        thermal_niche = classify_thermal_niche(T_anomaly)
+      )
+  }
+
+  slice_air_temperature_C8 <- prepare_vertical_profile(temp_C8)
+  slice_air_temperature_R7 <- prepare_vertical_profile(temp_R7)
+}
 
 # -----------------
 # VERTICAL NICHE PLOT
@@ -224,12 +265,22 @@ plot_ground_niches <- function(dat) {
 # -----------------
 # CREATE PLOTS
 # -----------------
+if(average_over_slices == "yes"){
 
-temp_air_niche_3D_C8 <- plot_vertical_niches(average_air_temperature_C8)
-temp_air_niche_3D_ground_C8 <- plot_ground_niches(ground_C8)
+  temp_air_niche_3D_C8 <- plot_vertical_niches(average_air_temperature_C8)
+  temp_air_niche_3D_ground_C8 <- plot_ground_niches(ground_C8)
 
-temp_air_niche_3D_R7 <- plot_vertical_niches(average_air_temperature_R7)
-temp_air_niche_3D_ground_R7 <- plot_ground_niches(ground_R7)
+  temp_air_niche_3D_R7 <- plot_vertical_niches(average_air_temperature_R7)
+  temp_air_niche_3D_ground_R7 <- plot_ground_niches(ground_R7)
+
+} else{
+  temp_air_niche_3D_C8 <- plot_vertical_niches(slice_air_temperature_C8)
+  temp_air_niche_3D_ground_C8 <- plot_ground_niches(ground_C8)
+
+  temp_air_niche_3D_R7 <- plot_vertical_niches(slice_air_temperature_R7)
+  temp_air_niche_3D_ground_R7 <- plot_ground_niches(ground_R7)
+}
+
 
 # C8
 ggsave(

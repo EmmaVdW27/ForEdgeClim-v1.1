@@ -29,7 +29,7 @@ suppressPackageStartupMessages({
 # -----------------
 
 # Set the base plot. The script will also look for "<base>_uncalibrated".
-base_plot <- "C8"   # C8 or R7
+base_plot <- "R7"   # C8 or R7
 
 # Build file map: names = model label, values = plot-string used in filenames
 plot_map <- c(
@@ -78,6 +78,55 @@ spatial_cal <- readRDS(
     ".rds"
   )
 )
+
+
+# ==============================================================================
+# SPATIAL CORRELATIONS — DRY AND WET SEASONS
+# ==============================================================================
+
+spatial_seasonal <- bind_rows(
+  spatial_uncal %>%
+    mutate(model = "uncalibrated"),
+
+  spatial_cal %>%
+    mutate(model = "calibrated")
+) %>%
+  mutate(
+    season = if_else(
+      lubridate::month(date) %in% 1:4,
+      "Dry",
+      "Wet"
+    )
+  )
+
+spatial_seasonal_stats <- spatial_seasonal %>%
+  group_by(model, season) %>%
+  summarise(
+    n_days = n_distinct(date),
+    spatial_pearson = median(
+      spatial_pearson,
+      na.rm = TRUE
+    ),
+    spatial_spearman = median(
+      spatial_spearman,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  ) %>%
+  arrange(model, season)
+
+cat("\nSpatial correlations by season:\n")
+print(spatial_seasonal_stats)
+
+write.csv(
+  spatial_seasonal_stats,
+  file.path(
+    output_path,
+    paste0("spatial_seasonal_", base_plot, ".csv")
+  ),
+  row.names = FALSE
+)
+
 
 temporal_all <- bind_rows(
 

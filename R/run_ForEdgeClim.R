@@ -17,6 +17,7 @@
 #' @param datetime Datetime object representing the current simulation time
 #' @return Dataframe with simulated microclimate temperatures and fluxes
 #' @importFrom dplyr group_by ungroup mutate left_join
+#' @importFrom RANN nn2
 #' @export
 run_foredgeclim <- function(structure_grid, datetime, trace_idx = NULL) {
 
@@ -24,6 +25,7 @@ run_foredgeclim <- function(structure_grid, datetime, trace_idx = NULL) {
   # 2D SHORTWAVE RADIATIVE TRANSFER MODELLING #
   #############################################
   voxel_grid = structure_grid
+
   final_results <<- shortwave_two_stream_RTM(datetime, lat, lon, voxel_grid,
                                              F_sky_diff_init, F_sky_dir_init,
                                              omega_g_v,

@@ -168,7 +168,6 @@ niche_colours <- c(
 # COLOURED NICHE LABELS
 #
 # Text itself is coloured rather than trying to draw coloured backgrounds.
-# This is substantially more robust for ggplot axis labels.
 # ==========================================================================================
 
 niche_labels_coloured <- c(
@@ -801,11 +800,11 @@ create_connectivity_plot <- function(selected_period) {
 
   labs(
 
-    x = "Spatial microhabitat connectivity",
+    x = "Local spatial microhabitat continuity",
 
     y = NULL,
 
-    title = "(c) Spatial connectivity of thermal microhabitats"
+    title = "(c) Local spatial continuity of thermal microhabitats"
   ) +
 
     common_theme
@@ -1224,6 +1223,8 @@ cat(
 print(
   connectivity_difference
 )
+
+
 
 
 # ==========================================================================================

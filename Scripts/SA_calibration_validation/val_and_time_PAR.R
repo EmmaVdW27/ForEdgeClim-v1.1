@@ -524,4 +524,4 @@ plan(sequential)
 
 end_analysis <- Sys.time()
 cat(sprintf('\nTotal running time = %.2f min\n',
-            as.numeric(end_analysis - start_analysis, units = 'mins')))
+            as.numeric(end_analysis - start_analysis, units = "mins")))

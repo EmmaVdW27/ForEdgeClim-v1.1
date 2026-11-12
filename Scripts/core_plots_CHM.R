@@ -130,7 +130,7 @@ create_canopy_height_plot <- function(grid,
 
     scale_fill_viridis_c(
       option = "viridis",
-      direction = -1,
+      direction = 1,
       limits = c(0, 40),
       na.value = "white",
       name = "Canopy height (m)",

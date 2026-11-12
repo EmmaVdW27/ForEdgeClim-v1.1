@@ -1,694 +1,131 @@
-############################################################################################
-# ForEdgeClim - 3D thermal heterogeneity
+################################################################################
+# ForEdgeClim - Vertical absolute air-temperature profiles and spatial P05-P95
+# Day and night shown separately; dry and wet seasons in columns.
 #
-# Main figure:
-#   (a) Vertical distribution of spatial thermal range
-#   (b) Treatment difference across forest height
-#
-# Appendix figure:
-#   Distribution of spatial thermal range across vertical forest zones
-#
-# Author: Emma Van de Walle - Q-ForestLab
-############################################################################################
+# Author: Emma Van de Walle – Q-ForestLab
+################################################################################
 
-
-# ---- Packages ----
 suppressPackageStartupMessages({
   library(dplyr)
-  library(tidyr)
   library(ggplot2)
-  library(gridExtra)
   library(grid)
+  library(ggh4x)
+  library(patchwork)
+  library(lmerTest)
+  library(emmeans)
+  library(purrr)
+  library(tidyr)
 })
 
+control <- readRDS("Output/heterogeneity/heterogeneity_control_calibrated.rds") %>%
+  mutate(treatment = "Control")
+removal <- readRDS("Output/heterogeneity/heterogeneity_removal_calibrated.rds") %>%
+  mutate(treatment = "Liana removal")
 
-# ==========================================================================================
-# INPUT
-# ==========================================================================================
+output_path <- "Output/heterogeneity/figures"
+dir.create(output_path, recursive = TRUE, showWarnings = FALSE)
 
-control <- readRDS(
-  "Output/heterogeneity/heterogeneity_control_calibrated.rds"
-)
-
-removal <- readRDS(
-  "Output/heterogeneity/heterogeneity_removal_calibrated.rds"
-)
-
-
-# ---- Add treatment ----
-
-control <- control %>%
+# Keep original seasonal and daytime definitions from the supplied script.
+dat <- bind_rows(control, removal) %>%
   mutate(
-    treatment = "Control"
-  )
+    treatment = factor(treatment, levels = c("Control", "Liana removal")),
+    season = if_else(doy >= 350 | doy <= 120, "Dry season", "Wet season"),
+    period = if_else(hour >= 11 & hour <= 22, "Day", "Night"),
+    season = factor(season, levels = c("Dry season", "Wet season")),
+    period = factor(period, levels = c("Day", "Night"))
+  ) %>%
+  filter(is.finite(Tair_p05), is.finite(Tair_p95), is.finite(Tair_mean))
 
-removal <- removal %>%
-  mutate(
-    treatment = "Liana removal"
-  )
-
-
-# ==========================================================================================
-# COMBINE DATA
-# ==========================================================================================
-
-dat <- bind_rows(
-  control,
-  removal
-) %>%
-  mutate(
-
-    treatment = factor(
-      treatment,
-      levels = c(
-        "Control",
-        "Liana removal"
-      )
-    ),
-
-    # Seasons
-    season = case_when(
-      doy >= 350 | doy <= 120 ~ "Dry season",
-      TRUE                    ~ "Wet season"
-    ),
-
-    # Day/night
-    period = case_when(
-      hour >= 11 & hour <= 22 ~ "Day",
-      TRUE                    ~ "Night"
-    ),
-
-    season = factor(
-      season,
-      levels = c(
-        "Dry season",
-        "Wet season"
-      )
-    ),
-
-    period = factor(
-      period,
-      levels = c(
-        "Day",
-        "Night"
-      )
-    )
-  )
-
-
-# ==========================================================================================
-# COLOURS
-# ==========================================================================================
-
-treatment_colours <- c(
-  "Control"       = "blue",
-  "Liana removal" = "red"
-)
-
-
-# ==========================================================================================
-# OUTPUT
-# ==========================================================================================
-
-output_path <- "Output/heterogeneity/figures/"
-
-dir.create(
-  output_path,
-  recursive = TRUE,
-  showWarnings = FALSE
-)
-
-
-
-############################################################################################
-############################################################################################
-#
-# MAIN FIGURE
-#
-############################################################################################
-############################################################################################
-
-
-# ==========================================================================================
-# STEP 1
-# SUMMARIZE THROUGH TIME WITHIN EACH INDIVIDUAL PLOT
-#
-# Result:
-#
-# treatment x plot x season x period x height
-#
-# Spatial thermal range = P95(Tair) - P05(Tair)
-#
-# Every plot therefore receives equal weight.
-# ==========================================================================================
-
+# Step 1: summarize hourly spatial percentiles through time within each plot.
+# These are medians of hourly spatial percentiles, NOT percentiles of all
+# voxel temperatures pooled across the entire season.
 plot_summary <- dat %>%
-  group_by(
-    treatment,
-    plot,
-    season,
-    period,
-    z
-  ) %>%
+  group_by(treatment, plot, season, period, z) %>%
   summarise(
-
-    Tair_range90 = median(
-      Tair_range90,
-      na.rm = TRUE
-    ),
-
+    p05 = median(Tair_p05, na.rm = TRUE),
+    p95 = median(Tair_p95, na.rm = TRUE),
+    mean_T = median(Tair_mean, na.rm = TRUE),
     .groups = "drop"
-  )
+  ) %>%
+  filter(is.finite(p05), is.finite(p95), is.finite(mean_T))
 
-
-# ---- Remove non-finite values ----
-
-plot_summary <- plot_summary[
-  is.finite(plot_summary$Tair_range90),
-]
-
-
-# ==========================================================================================
-# STEP 2
-# SUMMARIZE ACROSS PLOTS WITHIN EACH TREATMENT
-#
-# Median = treatment-level central tendency
-# Q25-Q75 = between-plot variability
-# ==========================================================================================
-
+# Step 2: summarize plot-specific profiles equally across plots.
 vertical_summary <- plot_summary %>%
-  group_by(
-    treatment,
-    season,
-    period,
-    z
-  ) %>%
+  group_by(treatment, season, period, z) %>%
   summarise(
-
-    median_range90 = median(
-      Tair_range90,
-      na.rm = TRUE
-    ),
-
-    q25_range90 = quantile(
-      Tair_range90,
-      probs = 0.25,
-      na.rm = TRUE,
-      names = FALSE
-    ),
-
-    q75_range90 = quantile(
-      Tair_range90,
-      probs = 0.75,
-      na.rm = TRUE,
-      names = FALSE
-    ),
-
+    p05 = median(p05, na.rm = TRUE),
+    p95 = median(p95, na.rm = TRUE),
+    mean_T = median(mean_T, na.rm = TRUE),
+    n_plots = n_distinct(plot),
     .groups = "drop"
-  )
+  ) %>%
+  filter(is.finite(p05), is.finite(p95), is.finite(mean_T))
 
+# Set to NULL for automatically selected shared x-axis limits.
+# Alternatively specify e.g. c(20, 34) for both day and night.
+manual_x_limits <- NULL
 
-# ---- Remove possible non-finite values ----
+treatment_colours <- c("Control" = "blue", "Liana removal" = "red")
 
-vertical_summary <- vertical_summary[
-  is.finite(vertical_summary$median_range90) &
-    is.finite(vertical_summary$q25_range90) &
-    is.finite(vertical_summary$q75_range90),
-]
+make_profile <- function(selected_period) {
+  df <- vertical_summary %>% filter(period == selected_period)
 
-
-# ==========================================================================================
-# FIGURE A
-#
-# VERTICAL DISTRIBUTION OF SPATIAL THERMAL HETEROGENEITY
-#
-# Separate figures are created for daytime and nighttime.
-#
-# Broad coloured marks:
-#   treatment median
-#
-# Transparent coloured intervals:
-#   Q25-Q75 among plots
-# ==========================================================================================
-
-
-# ---- Function for Figure A ----
-
-create_plot_A <- function(data, selected_period) {
-
-  plot_dat <- data %>%
-    filter(
-      period == selected_period
-    )
-
-
-  ggplot(
-    plot_dat,
-    aes(
-      y = z,
-      colour = treatment
-    )
-  ) +
-
-    # ---- Interquartile range among plots ----
-
-  geom_ribbon(
-    aes(
-      xmin = q25_range90,
-      xmax = q75_range90,
-      group = treatment,
-      fill = treatment
-    ),
-    alpha = 0.20,
-    colour = NA,
-    orientation = "y"
-  ) +
-
-    # ---- Treatment median: connected vertically across height ----
-
-  geom_path(
-    aes(
-      x = median_range90,
-      group = treatment
-    ),
-    linewidth = 1.5
-  ) +
-
-    # ---- Facets: seasons only ----
-
-  facet_grid(
-    . ~ season
-  ) +
-
-  scale_y_continuous(
-    limits = c(0, 40),
-    breaks = seq(0, 40, by = 10),
-    expand = expansion(mult = c(0, 0))
-  ) +
-
-    # ---- Colours ----
-
-  scale_colour_manual(
-    values = treatment_colours,
-    name = NULL
-  ) +
-
-    scale_fill_manual(
-      values = treatment_colours,
-      name = NULL
+  p <- ggplot(df, aes(y = z, colour = treatment, fill = treatment)) +
+    geom_ribbon(
+      aes(xmin = p05, xmax = p95, group = treatment),
+      orientation = "y", alpha = 0.18, colour = NA
     ) +
-
-    guides(
-      colour = guide_legend(
-        override.aes = list(
-          linewidth = 1.5,
-          alpha = 1
-        )
+    geom_path(aes(x = mean_T, group = treatment), linewidth = 1.2) +
+    facet_grid(. ~ season) +
+    scale_x_continuous(
+      name = expression("Air temperature (" * degree * "C)"),
+      breaks = function(x) seq(
+        from = ceiling(x[1]),
+        to = floor(x[2]),
+        by = 1
       ),
-      fill = "none"
+      labels = scales::label_number(accuracy = 1),
+      expand = expansion(mult = c(0.03, 0.03))
     ) +
-
-    # ---- Labels ----
-
-  labs(
-
-    x = expression(
-      "Spatial thermal range (" *
-        P[95] - P[5] *
-        ", " *
-        degree * C *
-        ")"
-    ),
-
-    y = "Height (m)",
-
-    title = "(a) Vertical distribution of spatial thermal heterogeneity"
-  ) +
-
-    # ---- Theme ----
-
-  theme_bw() +
-
+    scale_y_continuous(
+      name = "Height (m)", limits = c(0, 40),
+      breaks = seq(0, 40, 10), expand = expansion(mult = c(0, 0))
+    ) +
+    scale_colour_manual(values = treatment_colours, name = NULL) +
+    scale_fill_manual(values = treatment_colours, name = NULL) +
+    guides(fill = "none", colour = guide_legend(override.aes = list(linewidth = 1.5))) +
+    theme_bw() +
     theme(
-
-      plot.title = element_text(
-        size = 34
-      ),
-
-      axis.title = element_text(
-        size = 32
-      ),
-
-      axis.text = element_text(
-        size = 28
-      ),
-
-      strip.text = element_text(
-        size = 35,
-        face = "bold"
-      ),
-
-      legend.text = element_text(
-        size = 28
-      ),
-
+      axis.title = element_text(size = 21),
+      axis.text = element_text(size = 17),
+      strip.text = element_text(size = 20, face = "bold"),
+      legend.text = element_text(size = 18),
       legend.position = "top",
-
       legend.justification = "left",
-
-      legend.key.width = unit(
-        2.5,
-        "cm"
-      ),
-
-      legend.margin = margin(
-        t = 0,
-        r = 0,
-        b = 5,
-        l = 0
-      ),
-
-      plot.margin = margin(
-        10,
-        15,
-        10,
-        10
-      )
+      legend.key.width = unit(1.5, "cm"),
+      plot.margin = margin(10, 15, 10, 10)
     )
+
+  if (!is.null(manual_x_limits)) {
+    p <- p + coord_cartesian(xlim = manual_x_limits)
+  }
+  p
 }
 
+plot_day <- make_profile("Day")
+plot_night <- make_profile("Night")
 
-# ==========================================================================================
-# TREATMENT DIFFERENCE
-#
-# Liana removal - Control
-#
-# Difference calculated for all pairwise combinations of
-# removal and control plots at each height.
-#
-# Line   = median pairwise treatment difference
-# Ribbon = Q25-Q75 among pairwise treatment differences
-# ==========================================================================================
+print(plot_day)
+print(plot_night)
 
-control_diff <- plot_summary %>%
-  filter(treatment == "Control") %>%
-  select(
-    plot_control = plot,
-    season,
-    period,
-    z,
-    range_control = Tair_range90
-  )
+ggsave(file.path(output_path, "vertical_absolute_temperature_profiles_day.png"),
+       plot_day, width = 9, height = 5, dpi = 300)
+ggsave(file.path(output_path, "vertical_absolute_temperature_profiles_night.png"),
+       plot_night, width = 9, height = 5, dpi = 300)
 
-removal_diff <- plot_summary %>%
-  filter(treatment == "Liana removal") %>%
-  select(
-    plot_removal = plot,
-    season,
-    period,
-    z,
-    range_removal = Tair_range90
-  )
 
 
-# ---- All 4 x 4 treatment combinations at each height ----
 
-pairwise_differences <- removal_diff %>%
-  inner_join(
-    control_diff,
-    by = c("season", "period", "z"),
-    relationship = "many-to-many"
-  ) %>%
-  mutate(
-    delta_range90 = range_removal - range_control
-  )
-
-
-treatment_difference <- pairwise_differences %>%
-  group_by(
-    season,
-    period,
-    z
-  ) %>%
-  summarise(
-
-    median_delta = median(
-      delta_range90,
-      na.rm = TRUE
-    ),
-
-    q25_delta = quantile(
-      delta_range90,
-      probs = 0.25,
-      na.rm = TRUE,
-      names = FALSE
-    ),
-
-    q75_delta = quantile(
-      delta_range90,
-      probs = 0.75,
-      na.rm = TRUE,
-      names = FALSE
-    ),
-
-    .groups = "drop"
-  ) %>%
-
-  # Rename only AFTER all summaries have been calculated
-  rename(
-    delta_range90 = median_delta
-  )
-
-# ==========================================================================================
-# FIGURE B
-#
-# TREATMENT DIFFERENCE ACROSS FOREST HEIGHT
-# ==========================================================================================
-
-
-# ---- Function for Figure B ----
-
-create_plot_B <- function(data, selected_period) {
-
-  plot_dat <- data %>%
-
-    filter(
-      period == selected_period
-    )
-
-
-  ggplot(
-    plot_dat,
-    aes(
-      x = delta_range90,
-      y = z
-    )
-  ) +
-
-    # ---- Zero = no treatment difference ----
-
-  geom_vline(
-    xintercept = 0,
-    linetype = "dashed",
-    colour = "grey30",
-    linewidth = 1.3
-  ) +
-
-    # ---- Difference at each 1-m layer ----
-
-  # ---- Q25-Q75 of pairwise treatment differences ----
-
-  geom_ribbon(
-    aes(
-      y = z,
-      xmin = q25_delta,
-      xmax = q75_delta,
-      group = season
-    ),
-    orientation = "y",
-    inherit.aes = FALSE,
-    fill = "grey70",
-    alpha = 0.5,
-    colour = NA
-  ) +
-
-    # ---- Median pairwise treatment difference ----
-
-  geom_path(
-    aes(
-      x = delta_range90,
-      y = z,
-      group = season
-    ),
-    inherit.aes = FALSE,
-    linewidth = 1.5,
-    colour = "grey20"
-  ) +
-
-    # ---- Facets: seasons only ----
-
-  facet_grid(
-    . ~ season
-  ) +
-
-  scale_y_continuous(
-    limits = c(0, 40),
-    breaks = seq(0, 40, by = 10),
-    expand = expansion(mult = c(0, 0))
-  ) +
-
-    # ---- Labels ----
-
-  labs(
-
-    x = expression(
-      Delta *
-        " spatial thermal range (removal - control, " *
-        degree * C *
-        ")"
-    ),
-
-    y = "Height (m)",
-
-    title = "(b) Liana removal effect on spatial thermal heterogeneity"
-  ) +
-
-    # ---- Theme ----
-
-  theme_bw() +
-
-    theme(
-
-      plot.title = element_text(
-        size = 34
-      ),
-
-      axis.title = element_text(
-        size = 32
-      ),
-
-      axis.text = element_text(
-        size = 28
-      ),
-
-      strip.text = element_text(
-        size = 35,
-        face = "bold"
-      ),
-
-      legend.position = "none",
-
-      plot.margin = margin(
-        10,
-        15,
-        10,
-        10
-      )
-    )
-}
-
-
-# ==========================================================================================
-# CREATE DAY FIGURE
-# ==========================================================================================
-
-plot_A_day <- create_plot_A(
-  vertical_summary,
-  "Day"
-)
-
-plot_B_day <- create_plot_B(
-  treatment_difference,
-  "Day"
-)
-
-
-main_heterogeneity_plot_day <- gridExtra::arrangeGrob(
-
-  plot_A_day,
-
-  plot_B_day,
-
-  ncol = 1,
-
-  heights = c(
-    1,
-    1
-  )
-)
-
-
-# ==========================================================================================
-# CREATE NIGHT FIGURE
-# ==========================================================================================
-
-plot_A_night <- create_plot_A(
-  vertical_summary,
-  "Night"
-)
-
-plot_B_night <- create_plot_B(
-  treatment_difference,
-  "Night"
-)
-
-
-main_heterogeneity_plot_night <- gridExtra::arrangeGrob(
-
-  plot_A_night,
-
-  plot_B_night,
-
-  ncol = 1,
-
-  heights = c(
-    1,
-    1
-  )
-)
-
-
-# ==========================================================================================
-# SAVE DAY FIGURE
-# ==========================================================================================
-
-ggsave(
-
-  filename = file.path(
-    output_path,
-    "vertical_thermal_heterogeneity_control_vs_removal_day.png"
-  ),
-
-  plot = main_heterogeneity_plot_day,
-
-  width = 13,
-  height = 13,
-
-  dpi = 300
-)
-
-
-# ==========================================================================================
-# SAVE NIGHT FIGURE
-# ==========================================================================================
-
-ggsave(
-
-  filename = file.path(
-    output_path,
-    "vertical_thermal_heterogeneity_control_vs_removal_night.png"
-  ),
-
-  plot = main_heterogeneity_plot_night,
-
-  width = 13,
-  height = 13,
-
-  dpi = 300
-)
-
-
-############################################################################################
 ############################################################################################
 #
 # APPENDIX FIGURE
@@ -696,7 +133,6 @@ ggsave(
 # DISTRIBUTION OF SPATIAL THERMAL HETEROGENEITY
 # ACROSS VERTICAL FOREST ZONES
 #
-############################################################################################
 ############################################################################################
 
 
@@ -739,19 +175,20 @@ vertical_zone_data <- dat %>%
     )
   )
 
-# ---- Reverse vertical order for plotting ----
+# Height classes ordered from forest canopy to forest floor
+height_levels <- c(
+  ">30 m",
+  "20-30 m",
+  "10-20 m",
+  "2-10 m",
+  "0-2 m"
+)
 
 vertical_zone_data <- vertical_zone_data %>%
   mutate(
     height_class = factor(
-      height_class,
-      levels = c(
-        ">30 m",
-        "20-30 m",
-        "10-20 m",
-        "2-10 m",
-        "0-2 m"
-      )
+      as.character(height_class),
+      levels = height_levels
     )
   )
 
@@ -854,155 +291,505 @@ vertical_zone_data <- vertical_zone_data %>%
   )
 
 
+
 # ==========================================================================================
 # APPENDIX VIOLIN PLOT
+# Day:   Dry | Wet  (shared y-axis within each height class)
+# Night: Dry | Wet  (shared y-axis within each height class)
 # ==========================================================================================
 
-vertical_zone_plot <- ggplot(
-  vertical_zone_data,
-  aes(
-    x = treatment_position,
-    y = Tair_range90,
-    fill = treatment,
-    colour = treatment,
-    group = treatment
-  )
-) +
+make_zone_plot <- function(selected_period) {
 
-  # ---- Violin distributions ----
+  df <- vertical_zone_data %>%
+    filter(period == selected_period) %>%
+    mutate(
+      season = factor(
+        season,
+        levels = c("Dry season", "Wet season")
+      )
+    )
 
-geom_violin(
-  trim = TRUE,
-  alpha = 0.25,
-  scale = "width",
-  linewidth = 1.3,
-  width = 0.8
-) +
-
-  # ---- Boxplots ----
-
-geom_boxplot(
-  width = 0.16,
-  outlier.shape = NA,
-  alpha = 0.65,
-  linewidth = 1
-) +
-
-  # ---- Facets ----
-
-facet_grid(
-
-  height_class ~
-
-    interaction(
-      period,
-      season,
-      sep = " - "
-    ),
-
-  scales = "free_y"
-) +
-
-  # ---- Colours ----
-
-scale_fill_manual(
-  values = treatment_colours,
-  name = NULL
-) +
-
-  scale_colour_manual(
-    values = treatment_colours,
-    name = NULL
+  ggplot(
+    df,
+    aes(
+      x = treatment_position,
+      y = Tair_range90,
+      fill = treatment,
+      colour = treatment,
+      group = treatment
+    )
   ) +
 
-  # ---- X-axis ----
-#
-# Treatments remain separated spatially,
-# but treatment names are not printed underneath.
-# ----
+    geom_violin(
+      trim = TRUE,
+      alpha = 0.25,
+      scale = "width",
+      linewidth = 1.3,
+      width = 0.8
+    ) +
 
-scale_x_continuous(
-  limits = c(
-    0.4,
-    2.6
-  ),
-  breaks = NULL
-) +
+    geom_boxplot(
+      width = 0.16,
+      outlier.shape = NA,
+      alpha = 0.65,
+      linewidth = 1
+    ) +
 
-  # ---- Labels ----
+    facet_grid2(
+      height_class ~ season,
+      scales = "free_y",
+      independent = "none",
+      axes = "margins",
+      switch = NULL,
+      labeller = labeller(
+        season = function(x) {
+          paste(selected_period, "-", x)
+        }
+      )
+    ) +
 
-labs(
+    scale_fill_manual(
+      values = treatment_colours,
+      name = NULL
+    ) +
 
-  x = NULL,
+    scale_colour_manual(
+      values = treatment_colours,
+      name = NULL
+    ) +
 
-  y = expression(
-    "Spatial thermal range (" *
-      P[95] - P[5] *
-      ", " *
-      degree * C *
-      ")"
-  )
-) +
+    scale_x_continuous(
+      limits = c(0.4, 2.6),
+      breaks = NULL
+    ) +
 
-  # ---- Theme ----
+    labs(
+      x = NULL,
+      y = if (selected_period == "Day") {
+        "Spatial thermal range (P95 - P05, °C)"
+      } else {
+        NULL
+      }
+    ) +
 
-theme_bw() +
+    theme_bw() +
 
-  theme(
+    theme(
+      axis.title = element_text(size = 32),
+      axis.text.y = element_text(size = 28),
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
 
-    axis.title = element_text(
-      size = 32
-    ),
+      strip.text = element_text(
+        size = 30,
+        face = "bold"
+      ),
 
-    axis.text.y = element_text(
-      size = 28
-    ),
+      strip.text.y.right = if (selected_period == "Night") {
+        element_text(size = 26, face = "bold", angle = 270)
+      } else {
+        element_blank()
+      },
 
-    # No treatment labels underneath violins
-    axis.text.x = element_blank(),
+      legend.text = element_text(size = 28),
+      legend.position = "none",
 
-    axis.ticks.x = element_blank(),
+      panel.spacing.y = unit(1.2, "cm"),
+      panel.spacing.x = unit(0.3, "cm"),
 
-    strip.text = element_text(
-      size = 30,
-      face = "bold"
-    ),
-
-    legend.text = element_text(
-      size = 28,
-      margin = margin(l = 12, r = 25)
-    ),
-
-    legend.position = "top",
-
-    legend.key.width = unit(
-      2.5,
-      "cm"
-    ),
-
-    plot.margin = margin(
-      10,
-      15,
-      10,
-      10
+      plot.margin = margin(10, 10, 10, 10)
     )
+}
+
+# Separate day and night panels
+plot_zones_day <- make_zone_plot("Day")
+plot_zones_night <- make_zone_plot("Night")
+
+# Combine into four columns:
+# Day Dry | Day Wet | Night Dry | Night Wet
+vertical_zone_plot <-
+  (plot_zones_day | plot_zones_night) +
+  plot_layout(
+    widths = c(1, 1),
+    guides = "collect"
+  ) &
+  theme(
+    legend.position = "top",
+    legend.justification = "center",
+    legend.text = element_text(size = 28),
+    legend.key.width = unit(2.5, "cm"),
+    legend.key.spacing.x = unit(1.5, "cm")
   )
 
-# ==========================================================================================
-# SAVE APPENDIX FIGURE
-# ==========================================================================================
-
+# Save
 ggsave(
-
   filename = file.path(
     output_path,
     "vertical_zone_thermal_heterogeneity_distributions.png"
   ),
-
   plot = vertical_zone_plot,
-
-  width = 18,
-  height = 16,
-
+  width = 20,
+  height = 19,
   dpi = 300
 )
+
+
+
+################################################################################
+# ADDITIONAL FIGURE: ABSOLUTE TEMPERATURE PROFILES AT RELATIVE CANOPY HEIGHT
+# Same formatting as vertical_absolute_temperature_profiles_day.png
+################################################################################
+
+canopy_heights <- tibble(
+  plot = c("C8", "C13", "C12", "C16",
+           "R7", "R11", "R5", "R14"),
+  H_max = c(38, 33, 29, 30,
+            37, 35, 36, 42)
+)
+
+# Retain existing canopy_heights table with columns plot and H_max.
+
+# Step 1: Normalise height for each plot.
+relative_dat <- dat %>%
+  left_join(canopy_heights, by = "plot") %>%
+  mutate(z_rel = z / H_max) %>%
+  filter(
+    is.finite(z_rel),
+    z_rel >= 0,
+    z_rel <= 1
+  )
+
+# Step 2: Summarise hourly temperature statistics within each plot.
+relative_plot_summary <- relative_dat %>%
+  group_by(treatment, plot, season, period, z_rel) %>%
+  summarise(
+    p05 = median(Tair_p05, na.rm = TRUE),
+    p95 = median(Tair_p95, na.rm = TRUE),
+    mean_T = median(Tair_mean, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Step 3: Interpolate onto a common relative-height grid.
+common_heights <- seq(0.05, 0.95, by = 0.025)
+
+relative_interpolated <- relative_plot_summary %>%
+  group_by(treatment, plot, season, period) %>%
+  group_modify(~ {
+
+    d <- arrange(.x, z_rel)
+
+    tibble(
+      z_rel = common_heights,
+      p05 = approx(
+        d$z_rel, d$p05,
+        xout = common_heights,
+        rule = 1
+      )$y,
+      p95 = approx(
+        d$z_rel, d$p95,
+        xout = common_heights,
+        rule = 1
+      )$y,
+      mean_T = approx(
+        d$z_rel, d$mean_T,
+        xout = common_heights,
+        rule = 1
+      )$y
+    )
+  }) %>%
+  ungroup() %>%
+  filter(
+    is.finite(p05),
+    is.finite(p95),
+    is.finite(mean_T)
+  )
+
+# Step 4: Summarise equally across plots, as in the original script.
+relative_summary <- relative_interpolated %>%
+  group_by(treatment, season, period, z_rel) %>%
+  summarise(
+    p05 = median(p05, na.rm = TRUE),
+    p95 = median(p95, na.rm = TRUE),
+    mean_T = median(mean_T, na.rm = TRUE),
+    n_plots = n_distinct(plot),
+    .groups = "drop"
+  ) %>%
+  filter(
+    n_plots == 4,
+    is.finite(p05),
+    is.finite(p95),
+    is.finite(mean_T)
+  )
+
+# Step 5: Create the figure using the exact original ggplot formatting.
+plot_relative_day <- ggplot(
+  relative_summary %>% filter(period == "Day"),
+  aes(
+    y = z_rel,
+    colour = treatment,
+    fill = treatment
+  )
+) +
+  geom_ribbon(
+    aes(
+      xmin = p05,
+      xmax = p95,
+      group = treatment
+    ),
+    orientation = "y",
+    alpha = 0.18,
+    colour = NA
+  ) +
+  geom_path(
+    aes(
+      x = mean_T,
+      group = treatment
+    ),
+    linewidth = 1.2
+  ) +
+  facet_grid(. ~ season) +
+  scale_x_continuous(
+    name = expression("Air temperature (" * degree * "C)"),
+    breaks = function(x) seq(
+      from = ceiling(x[1]),
+      to = floor(x[2]),
+      by = 1
+    ),
+    labels = scales::label_number(accuracy = 1),
+    expand = expansion(mult = c(0.03, 0.03))
+  ) +
+  scale_y_continuous(
+    name = "Relative canopy height",
+    limits = c(0, 1),
+    breaks = seq(0, 1, 0.2),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_colour_manual(
+    values = treatment_colours,
+    name = NULL
+  ) +
+  scale_fill_manual(
+    values = treatment_colours,
+    name = NULL
+  ) +
+  guides(
+    fill = "none",
+    colour = guide_legend(
+      override.aes = list(linewidth = 1.5)
+    )
+  ) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 21),
+    axis.text = element_text(size = 17),
+    strip.text = element_text(size = 20, face = "bold"),
+    legend.text = element_text(size = 18),
+    legend.position = "top",
+    legend.justification = "left",
+    legend.key.width = unit(1.5, "cm"),
+    plot.margin = margin(10, 15, 10, 10)
+  )
+
+print(plot_relative_day)
+
+ggsave(
+  file.path(
+    output_path,
+    "vertical_absolute_temperature_profiles_relative_height_day.png"
+  ),
+  plot_relative_day,
+  width = 9,
+  height = 5,
+  dpi = 300
+)
+
+
+################################################################################
+# QUANTITATIVE COMPARISON OF VERTICAL THERMAL HETEROGENEITY
+# Absolute height versus relative canopy height
+################################################################################
+
+
+# Common absolute canopy-height range across all plots.
+H_common <- min(canopy_heights$H_max)
+
+# ---- 1. Absolute-height treatment differences ----
+
+absolute_ranges <- plot_summary %>%
+  mutate(
+    thermal_range = p95 - p05
+  ) %>%
+  filter(z >= 0, z <= H_common) %>%
+  group_by(season, period, treatment, z) %>%
+  summarise(
+    thermal_range = median(thermal_range, na.rm = TRUE),
+    n_plots = n_distinct(plot),
+    .groups = "drop"
+  ) %>%
+  filter(n_plots == 4) %>%
+  select(season, period, treatment, z, thermal_range) %>%
+  pivot_wider(
+    names_from = treatment,
+    values_from = thermal_range
+  ) %>%
+  mutate(
+    delta = `Liana removal` - Control,
+    abs_delta = abs(delta),
+    height_system = "Absolute height",
+    height_scaled = z / H_common
+  )
+
+# ---- 2. Relative-height treatment differences ----
+
+relative_ranges <- relative_interpolated %>%
+  mutate(
+    thermal_range = p95 - p05
+  ) %>%
+  group_by(season, period, treatment, z_rel) %>%
+  summarise(
+    thermal_range = median(thermal_range, na.rm = TRUE),
+    n_plots = n_distinct(plot),
+    .groups = "drop"
+  ) %>%
+  filter(n_plots == 4) %>%
+  select(season, period, treatment, z_rel, thermal_range) %>%
+  pivot_wider(
+    names_from = treatment,
+    values_from = thermal_range
+  ) %>%
+  mutate(
+    delta = `Liana removal` - Control,
+    abs_delta = abs(delta),
+    height_system = "Relative canopy height",
+    height_scaled = z_rel
+  )
+
+# ---- 3. Summarise treatment contrasts ----
+
+summarise_contrasts <- function(df) {
+
+  df %>%
+    group_by(season, period) %>%
+    summarise(
+      mean_abs_delta = mean(abs_delta, na.rm = TRUE),
+      median_abs_delta = median(abs_delta, na.rm = TRUE),
+      mean_signed_delta = mean(delta, na.rm = TRUE),
+      max_abs_delta = max(abs_delta, na.rm = TRUE),
+      n_heights = n(),
+      .groups = "drop"
+    )
+}
+
+summary_absolute <- summarise_contrasts(absolute_ranges) %>%
+  rename_with(
+    ~ paste0(.x, "_absolute"),
+    -c(season, period)
+  )
+
+summary_relative <- summarise_contrasts(relative_ranges) %>%
+  rename_with(
+    ~ paste0(.x, "_relative"),
+    -c(season, period)
+  )
+
+comparison <- summary_absolute %>%
+  left_join(
+    summary_relative,
+    by = c("season", "period")
+  ) %>%
+  mutate(
+    change_abs_delta_pct =
+      100 * (
+        mean_abs_delta_relative /
+          mean_abs_delta_absolute - 1
+      )
+  )
+
+print(comparison, width = Inf)
+
+write.csv(
+  comparison,
+  file.path(
+    output_path,
+    "vertical_heterogeneity_height_normalisation_metrics.csv"
+  ),
+  row.names = FALSE
+)
+
+# ---- 4. Plot treatment contrasts ----
+
+contrast_profiles <- bind_rows(
+  absolute_ranges %>%
+    select(
+      season, period, height_system,
+      height_scaled, delta
+    ),
+  relative_ranges %>%
+    select(
+      season, period, height_system,
+      height_scaled, delta
+    )
+) %>%
+  mutate(
+    height_system = factor(
+      height_system,
+      levels = c(
+        "Absolute height",
+        "Relative canopy height"
+      )
+    )
+  )
+
+plot_contrasts <- ggplot(
+  contrast_profiles %>% filter(period == "Day"),
+  aes(
+    x = delta,
+    y = height_scaled,
+    colour = height_system
+  )
+) +
+  geom_vline(
+    xintercept = 0,
+    linetype = "dashed",
+    colour = "grey50"
+  ) +
+  geom_path(linewidth = 1.2) +
+  facet_grid(. ~ season) +
+  scale_y_continuous(
+    name = "Normalised vertical coordinate",
+    limits = c(0, 1),
+    breaks = seq(0, 1, 0.2),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  labs(
+    x = expression(
+      "Treatment difference in spatial thermal range (" *
+        degree * "C)"
+    ),
+    colour = NULL
+  ) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 21),
+    axis.text = element_text(size = 17),
+    strip.text = element_text(size = 20, face = "bold"),
+    legend.text = element_text(size = 18),
+    legend.position = "top",
+    legend.justification = "left",
+    legend.key.width = unit(1.5, "cm"),
+    plot.margin = margin(10, 15, 10, 10)
+  )
+
+print(plot_contrasts)
+
+ggsave(
+  file.path(
+    output_path,
+    "vertical_heterogeneity_height_normalisation_comparison.png"
+  ),
+  plot_contrasts,
+  width = 9,
+  height = 5,
+  dpi = 300
+)
+

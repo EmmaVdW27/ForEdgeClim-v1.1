@@ -34,6 +34,7 @@ if(plotnr == "C13"){
   height_canopy = 33
   # original TLS las file:
   TLS_input_file <- 'Data/Data_Kasper/plot13_trimmed_5cm.las'
+  ALS_input_file <- 'Data/Data_Kasper/plot13_ALS.las'
   # If the structural voxel grid has already been generated using
   # generate_DTM_grid_TLS(), the processed TLS file can be loaded directly:
   TLS_filtered_file <- 'Data/TLS_scaled_DTM_and_grid_C13_Panama.rds'
@@ -41,16 +42,19 @@ if(plotnr == "C13"){
   plot_map = "R11"
   height_canopy = 35
   TLS_input_file <- 'Data/Data_Kasper/plot11_trimmed_5cm.las'
+  ALS_input_file <- 'Data/Data_Kasper/plot11_ALS.las'
   TLS_filtered_file <- 'Data/TLS_scaled_DTM_and_grid_R11_Panama.rds'
 } else if(plotnr == "C8"){
   plot_map = "C8"
   height_canopy = 38
   TLS_input_file <- 'Data/Data_Kasper/plot08_trimmed_5cm.las'
+  ALS_input_file <- 'Data/Data_Kasper/plot08_ALS.las'
   TLS_filtered_file <- 'Data/TLS_scaled_DTM_and_grid_C8_Panama.rds'
 } else if(plotnr == "R7"){
   plot_map = "R7"
   height_canopy = 37
   TLS_input_file <- 'Data/Data_Kasper/plot07_trimmed_5cm.las'
+  ALS_input_file <- 'Data/Data_Kasper/plot07_ALS.las'
   TLS_filtered_file <- 'Data/TLS_scaled_DTM_and_grid_R7_Panama.rds'
 } else if(plotnr == "R5"){
   plot_map = "R5"
@@ -110,8 +114,8 @@ for (current_datetime in datetime_series) {
   #######################
 
   # Generate the structural voxel grid from the TLS LAS file if needed:
-  #voxel_TLS = generate_DTM_grid_TLS(las_file = TLS_input_file, voxel_size = voxel_length)
-  #saveRDS(voxel_TLS, TLS_filtered_file)
+  # voxel_TLS = generate_DTM_grid_TLS(TLS_input_file, ALS_input_file, voxel_length)
+  # saveRDS(voxel_TLS, TLS_filtered_file)
   # Load the preprocessed TLS-derived voxel grid:
   voxel_TLS = readRDS(TLS_filtered_file)
 
@@ -127,20 +131,21 @@ for (current_datetime in datetime_series) {
   # PLOTTING #
   ############
 
-  # Digital terrain model and structural grid plots:
-  plots_dtm_struct(dtm = voxel_TLS$dtm, grid = voxel_TLS$grid, output_path)
+  # # Digital terrain model and structural grid plots:
+  # plots_dtm_struct(dtm = voxel_TLS$dtm, grid = voxel_TLS$grid, output_path)
+  #
+  # # Shortwave radiation plots:
+  # plots_sw(sw_rad = res$sw_rad, output_path)
+  #
+  # # Longwave radiation plots:
+  # plots_lw(lw_rad = res$lw_rad, output_path)
+  #
+  # # Flux plots:
+  # plots_flux(res$micro_grid, res$net_radiation, res$sensible_flux, res$latent_flux, res$ground_flux, output_path, current_datetime)
+  #
+  # # Temperature plots:
+  # plots_temp(res$micro_grid, res$air_temperature, output_path, current_datetime)
 
-  # Shortwave radiation plots:
-  plots_sw(sw_rad = res$sw_rad, output_path)
-
-  # Longwave radiation plots:
-  plots_lw(lw_rad = res$lw_rad, output_path)
-
-  # Flux plots:
-  plots_flux(res$micro_grid, res$net_radiation, res$sensible_flux, res$latent_flux, res$ground_flux, output_path, current_datetime)
-
-  # Temperature plots:
-  plots_temp(res$micro_grid, res$air_temperature, output_path, current_datetime)
 
 }
 end_script = Sys.time()
